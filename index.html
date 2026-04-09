@@ -334,7 +334,7 @@
   </div>
 </div>
 
-<script>
+<script type="module">
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const DAY_MAP = {0:'Domingo',1:'Segunda',2:'Terça',3:'Quarta',4:'Quinta',5:'Sexta',6:'Sábado'};
 const DEFAULT_PALETTE = ['#2D5A27','#1A4A7A','#7A3A1A','#5A1A7A','#7A5A1A','#1A6A6A','#6A1A3A','#4A4A1A','#1A4A4A','#7A1A1A'];
@@ -363,31 +363,74 @@ function getISOWeek(date) {
 }
 function getCurrentWeek() { return getISOWeek(new Date()); }
 
-// ===== STATE =====
-function loadState() {
-  try {
-    const s = localStorage.getItem('planejador_v3');
-    if (s) {
-      state = {...state, ...JSON.parse(s)};
-      if (!state.doneTasks) state.doneTasks = [];
-      if (!state.metas) state.metas = [];
-      if (!state.nextMetaId) state.nextMetaId = 1;
-      if (!state.tagColors) state.tagColors = {};
-      if (!state.nextSubId) state.nextSubId = 1000;
-      if (!state.prazos) state.prazos = [];
-      if (!state.nextPrazoId) state.nextPrazoId = 1;
-      state.tasks.forEach(t => { if (!t.subtasks) t.subtasks = []; });
-    } else {
-      state.tasks = [
-        {id:state.nextId++, text:'Ler livro', tag:'Pessoal', day:'Segunda', done:false, subtasks:[{id:1,text:'Capítulo 1',done:false},{id:2,text:'Capítulo 2',done:false}]},
-        {id:state.nextId++, text:'Estudar', tag:'Trabalho', day:null, done:false, subtasks:[]},
-      ];
-      state.nextSubId = 10;
-    }
-  } catch(e) {}
+// ===== FIREBASE =====
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAF6Df1Is13E8i5fK923nJgVTjzrIaET0A",
+  authDomain: "planejadorfernanda.firebaseapp.com",
+  databaseURL: "https://planejadorfernanda-default-rtdb.firebaseio.com",
+  projectId: "planejadorfernanda",
+  storageBucket: "planejadorfernanda.firebasestorage.app",
+  messagingSenderId: "650288721976",
+  appId: "1:650288721976:web:df8737f5954d4fc721b6cd"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
+const STATE_REF = ref(db, 'planejador/state');
+
+let isSyncing = false;
+
+function saveState() {
+  if (isSyncing) return;
+  try { set(STATE_REF, state); } catch(e) { console.error('Erro ao salvar:', e); }
 }
 
-function saveState() { try { localStorage.setItem('planejador_v3', JSON.stringify(state)); } catch(e){} }
+function sanitizeState(raw) {
+  if (!raw.doneTasks) raw.doneTasks = [];
+  if (!raw.metas) raw.metas = [];
+  if (!raw.nextMetaId) raw.nextMetaId = 1;
+  if (!raw.tagColors) raw.tagColors = {};
+  if (!raw.nextSubId) raw.nextSubId = 1000;
+  if (!raw.prazos) raw.prazos = [];
+  if (!raw.nextPrazoId) raw.nextPrazoId = 1;
+  if (!raw.tasks) raw.tasks = [];
+  if (!raw.tags) raw.tags = ['Pessoal','Trabalho','Shalom'];
+  if (!raw.nextId) raw.nextId = 1;
+  if (!raw.currentWeek) raw.currentWeek = '';
+  raw.tasks.forEach(t => { if (!t.subtasks) t.subtasks = []; });
+  return raw;
+}
+
+function initFirebase() {
+  document.body.insertAdjacentHTML('beforeend',
+    `<div id="loadingOverlay" style="position:fixed;inset:0;background:rgba(247,244,239,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:12px;">
+      <div style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:#3A3026;">Carregando...</div>
+      <div style="font-size:0.82rem;color:#9E9891;">Conectando ao Firebase</div>
+    </div>`
+  );
+
+  onValue(STATE_REF, (snapshot) => {
+    isSyncing = true;
+    const data = snapshot.val();
+    if (data) state = sanitizeState({...state, ...data});
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) overlay.remove();
+    checkWeekRollover();
+    autoAdvanceTasks();
+    renderAll();
+    isSyncing = false;
+  }, (error) => {
+    console.error('Erro Firebase:', error);
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) overlay.innerHTML = `
+      <div style="font-family:'DM Serif Display',serif;font-size:1.1rem;color:#C0392B;">Erro de conexão</div>
+      <div style="font-size:0.8rem;color:#9E9891;">Verifique as regras do Firebase ou sua conexão</div>
+    `;
+  });
+}
 
 // ===== WEEK ROLLOVER =====
 function checkWeekRollover() {
@@ -1100,11 +1143,23 @@ function switchTab(name, el) {
   renderAll();
 }
 
+// ===== EXPOR FUNÇÕES GLOBAIS (necessário com type=module) =====
+Object.assign(window, {
+  switchTab, addMeta, toggleMetaDone, deleteMeta,
+  toggleDone, toggleSubtask, addSubtaskFromInput, deleteSubtask,
+  deleteTask, moveTask, restoreTask, permanentDelete, clearAllDone,
+  openMoveModal, confirmMove, closeMoveModal,
+  openEditModal, saveEdit, deleteFromEdit, closeEditModal,
+  openEditSubtaskModal, saveSubtaskEdit, closeEditSubtaskModal,
+  addTaskFromRow, buildCompactAddRowHTML,
+  addTag, removeTag, moveTagUp, moveTagDown, setTagColor,
+  addPrazo, togglePrazoDone, deletePrazo,
+  openEditPrazoModal, saveEditPrazo, deleteEditPrazo, closeEditPrazoModal,
+  saveMetaText
+});
+
 // ===== INIT =====
-loadState();
-checkWeekRollover();
-autoAdvanceTasks();
-renderAll();
+initFirebase();
 setInterval(() => { checkWeekRollover(); autoAdvanceTasks(); renderAll(); renderPrazos(); }, 60000);
 </script>
 </body>
