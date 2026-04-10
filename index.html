@@ -365,7 +365,7 @@ function getCurrentWeek() { return getISOWeek(new Date()); }
 
 // ===== FIREBASE =====
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAF6Df1Is13E8i5fK923nJgVTjzrIaET0A",
@@ -382,10 +382,7 @@ const db = getDatabase(firebaseApp);
 const STATE_REF = ref(db, 'fernanda/state');
 const BACKUP_KEY = 'planejador_backup_fernanda';
 
-// Versão local — incrementada a cada escrita. O listener remoto
-// só aplica dados do Firebase se a versão remota for maior que a local,
-// garantindo que echos e escritas concorrentes não revertam ações.
-let localVersion = 0;
+let isSyncing = false;
 
 function stateHasContent(s) {
   return s && (
@@ -408,9 +405,8 @@ function loadBackup() {
 }
 
 function saveState() {
+  if (isSyncing) return;
   try {
-    localVersion++;
-    state._v = localVersion;
     set(STATE_REF, state);
     saveBackup(state);
   } catch(e) { console.error('Erro ao salvar:', e); }
@@ -440,48 +436,38 @@ function initFirebase() {
     </div>`
   );
 
-  // Carrega uma vez com get(), depois ativa listener apenas para mudanças remotas
-  get(STATE_REF).then((snapshot) => {
+  onValue(STATE_REF, (snapshot) => {
+    isSyncing = true;
     const data = snapshot.val();
     const backup = loadBackup();
 
     if (stateHasContent(data)) {
-      state = sanitizeState({...state, ...data});
-      saveBackup(state);
+      // Firebase tem dados — usa ele, mas protege contra regressão
+      if (stateHasContent(backup) &&
+          ((backup.tasks||[]).length + (backup.doneTasks||[]).length) >
+          ((data.tasks||[]).length + (data.doneTasks||[]).length)) {
+        // Backup local tem mais dados que o Firebase — restaura backup
+        state = sanitizeState({...state, ...backup});
+        set(STATE_REF, state); // sobe o backup para o Firebase
+      } else {
+        state = sanitizeState({...state, ...data});
+        saveBackup(state);
+      }
     } else if (stateHasContent(backup)) {
+      // Firebase vazio mas backup local tem dados — restaura
       state = sanitizeState({...state, ...backup});
-      // Sobe o backup para o Firebase sem incrementar localVersion ainda
-      set(STATE_REF, {...state, _v: 0});
+      set(STATE_REF, state);
     }
-
-    // Estabelece localVersion com base no que veio do Firebase
-    // ANTES de ativar o listener — qualquer _v remoto <= isso é ignorado
-    localVersion = state._v || 0;
 
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.remove();
     checkWeekRollover();
     autoAdvanceTasks();
     renderAll();
-
-    // Ativa o listener. O primeiro disparo imediato terá _v === localVersion
-    // (exatamente o que acabamos de carregar), então será ignorado corretamente.
-    onValue(STATE_REF, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
-      const remoteVersion = data._v || 0;
-      // Só aplica se a versão remota for ESTRITAMENTE maior que a local
-      if (remoteVersion <= localVersion) return;
-      state = sanitizeState({...state, ...data});
-      localVersion = remoteVersion;
-      saveBackup(state);
-      checkWeekRollover();
-      autoAdvanceTasks();
-      renderAll();
-    });
-
-  }).catch((error) => {
+    isSyncing = false;
+  }, (error) => {
     console.error('Erro Firebase:', error);
+    // Tenta usar backup local se Firebase falhar
     const backup = loadBackup();
     if (stateHasContent(backup)) state = sanitizeState({...state, ...backup});
     const overlay = document.getElementById('loadingOverlay');
