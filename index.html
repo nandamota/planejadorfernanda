@@ -432,14 +432,6 @@ function sanitizeState(raw) {
   return raw;
 }
 
-function applyRemoteState(data) {
-  if (stateHasContent(data)) {
-    state = sanitizeState({...state, ...data});
-    localVersion = state._v || 0;
-    saveBackup(state);
-  }
-}
-
 function initFirebase() {
   document.body.insertAdjacentHTML('beforeend',
     `<div id="loadingOverlay" style="position:fixed;inset:0;background:rgba(247,244,239,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:12px;">
@@ -448,18 +440,23 @@ function initFirebase() {
     </div>`
   );
 
-  // PASSO 1: carregamento inicial via get() — lê uma vez, sem loop de echo
+  // Carrega uma vez com get(), depois ativa listener apenas para mudanças remotas
   get(STATE_REF).then((snapshot) => {
     const data = snapshot.val();
     const backup = loadBackup();
 
     if (stateHasContent(data)) {
-      applyRemoteState(data);
+      state = sanitizeState({...state, ...data});
+      saveBackup(state);
     } else if (stateHasContent(backup)) {
-      // Firebase vazio, sobe o backup local
       state = sanitizeState({...state, ...backup});
-      saveState();
+      // Sobe o backup para o Firebase sem incrementar localVersion ainda
+      set(STATE_REF, {...state, _v: 0});
     }
+
+    // Estabelece localVersion com base no que veio do Firebase
+    // ANTES de ativar o listener — qualquer _v remoto <= isso é ignorado
+    localVersion = state._v || 0;
 
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.remove();
@@ -467,18 +464,17 @@ function initFirebase() {
     autoAdvanceTasks();
     renderAll();
 
-    // PASSO 2: após carregar, ativa o listener só para mudanças remotas
+    // Ativa o listener. O primeiro disparo imediato terá _v === localVersion
+    // (exatamente o que acabamos de carregar), então será ignorado corretamente.
     onValue(STATE_REF, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
-
-      // Ignora se a versão remota é igual ou menor que a local
-      // (echo das nossas próprias escritas ou dado desatualizado)
       const remoteVersion = data._v || 0;
+      // Só aplica se a versão remota for ESTRITAMENTE maior que a local
       if (remoteVersion <= localVersion) return;
-
-      // Versão remota é maior → mudança genuína de outro navegador
-      applyRemoteState(data);
+      state = sanitizeState({...state, ...data});
+      localVersion = remoteVersion;
+      saveBackup(state);
       checkWeekRollover();
       autoAdvanceTasks();
       renderAll();
