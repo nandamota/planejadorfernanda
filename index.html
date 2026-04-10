@@ -382,8 +382,6 @@ const db = getDatabase(firebaseApp);
 const STATE_REF = ref(db, 'fernanda/state');
 const BACKUP_KEY = 'planejador_backup_fernanda';
 
-let isSyncing = false;
-
 function stateHasContent(s) {
   return s && (
     (s.tasks && s.tasks.length > 0) ||
@@ -405,7 +403,6 @@ function loadBackup() {
 }
 
 function saveState() {
-  if (isSyncing) return;
   try {
     set(STATE_REF, state);
     saveBackup(state);
@@ -437,15 +434,14 @@ function initFirebase() {
   );
 
   onValue(STATE_REF, (snapshot) => {
-    isSyncing = true;
     const data = snapshot.val();
 
     if (data) {
-      // Firebase é sempre a fonte da verdade — aplica sem comparação
+      // Firebase é a fonte da verdade — aplica sempre
       state = sanitizeState({...state, ...data});
       saveBackup(state);
     } else {
-      // Firebase vazio — restaura backup local se existir
+      // Firebase vazio — restaura backup local
       const backup = loadBackup();
       if (stateHasContent(backup)) {
         state = sanitizeState({...state, ...backup});
@@ -455,10 +451,7 @@ function initFirebase() {
 
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.remove();
-    checkWeekRollover();
-    autoAdvanceTasks();
     renderAll();
-    isSyncing = false;
   }, (error) => {
     console.error('Erro Firebase:', error);
     // Tenta usar backup local se Firebase falhar
