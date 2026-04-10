@@ -382,10 +382,6 @@ const db = getDatabase(firebaseApp);
 const STATE_REF = ref(db, 'fernanda/state');
 const BACKUP_KEY = 'planejador_backup_fernanda';
 
-// Timestamp da última escrita local (ms). Usado para ignorar
-// o echo do onValue que o Firebase dispara após nosso próprio set().
-let lastLocalSaveAt = 0;
-
 function stateHasContent(s) {
   return s && (
     (s.tasks && s.tasks.length > 0) ||
@@ -407,10 +403,10 @@ function loadBackup() {
 }
 
 function saveState() {
-  // Marca o momento exato do save. O Firebase vai disparar o onValue
-  // algumas vezes como confirmação — vamos ignorar esses ecos.
-  lastLocalSaveAt = Date.now();
   try {
+    // Carimba o momento exato da escrita. O onValue vai receber esse
+    // valor de volta e comparar — se for igual, é echo nosso, ignora.
+    state._savedAt = Date.now();
     set(STATE_REF, state);
     saveBackup(state);
   } catch(e) { console.error('Erro ao salvar:', e); }
@@ -442,30 +438,28 @@ function initFirebase() {
 
   onValue(STATE_REF, (snapshot) => {
     const data = snapshot.val();
-    const now = Date.now();
 
-    // Janela de 5 s após um save local: os disparos do onValue são
-    // confirmações da nossa própria escrita — não sobrescrever o state.
-    // Após 5 s sem novo save, qualquer disparo é mudança remota legítima.
-    const isLocalEcho = (now - lastLocalSaveAt) < 5000;
-
-    if (isLocalEcho) {
-      // Só remove o overlay de carregamento e re-renderiza com o state atual
+    // Se o _savedAt do Firebase bate com o nosso, é o echo da nossa
+    // própria escrita — não sobrescrever o state, só renderizar.
+    if (data && data._savedAt && data._savedAt === state._savedAt) {
       const overlay = document.getElementById('loadingOverlay');
-      if (overlay) { overlay.remove(); checkWeekRollover(); autoAdvanceTasks(); renderAll(); }
+      if (overlay) { overlay.remove(); renderAll(); }
       return;
     }
 
-    // Mudança remota (outro navegador) — aplicar
-    const backup = loadBackup();
+    // Mudança veio de outro navegador, ou é o carregamento inicial.
+    // Aplica sem nenhuma lógica de contagem — o Firebase é a fonte da verdade.
     if (stateHasContent(data)) {
       state = sanitizeState({...state, ...data});
       saveBackup(state);
-    } else if (stateHasContent(backup)) {
-      // Firebase vazio mas backup local tem dados — restaura
-      state = sanitizeState({...state, ...backup});
-      lastLocalSaveAt = Date.now();
-      set(STATE_REF, state);
+    } else {
+      // Firebase vazio — tenta recuperar backup local
+      const backup = loadBackup();
+      if (stateHasContent(backup)) {
+        state = sanitizeState({...state, ...backup});
+        state._savedAt = Date.now();
+        set(STATE_REF, state);
+      }
     }
 
     const overlay = document.getElementById('loadingOverlay');
