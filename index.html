@@ -539,7 +539,7 @@ function addMeta() {
 
 function saveMetaText(id, value) {
   const m = state.metas.find(m => m.id === id);
-  if (m) { m.text = value; saveState(); }
+  if (m) { m.text = value; }
 }
 
 function toggleMetaDone(id) {
@@ -591,6 +591,7 @@ function buildMetasSection(containerId) {
       inp.value = m.text;
       inp.placeholder = 'Qual é a sua meta?';
       inp.oninput = () => saveMetaText(m.id, inp.value);
+      inp.onblur  = () => saveState();
 
       const del = document.createElement('button');
       del.className = 'meta-del-btn';
@@ -941,7 +942,7 @@ function buildDayTaskItem(task) {
         <button class="day-task-btn" title="Mover" onclick="openMoveModal(${task.id})">↔</button>
         <button class="day-task-btn" title="Voltar às tarefas" onclick="moveTask(${task.id},null)">←</button>
         <button class="day-task-btn" title="Editar" onclick="openEditModal(${task.id})">✎</button>
-        <button class="day-task-btn del" title="Excluir" onclick="if(confirm('Excluir?')) deleteTask(${task.id})">✕</button>
+        <button class="day-task-btn del" title="Excluir" onclick="deleteTask(${task.id})">✕</button>
       </div>
     </div>
     ${subInfo}
