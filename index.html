@@ -379,13 +379,37 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getDatabase(firebaseApp);
-const STATE_REF = ref(db, 'planejador/state');
+const STATE_REF = ref(db, 'fernanda/state');
+const BACKUP_KEY = 'planejador_backup_fernanda';
 
 let isSyncing = false;
 
+function stateHasContent(s) {
+  return s && (
+    (s.tasks && s.tasks.length > 0) ||
+    (s.doneTasks && s.doneTasks.length > 0) ||
+    (s.metas && s.metas.length > 0) ||
+    (s.prazos && s.prazos.length > 0)
+  );
+}
+
+function saveBackup(s) {
+  try { localStorage.setItem(BACKUP_KEY, JSON.stringify(s)); } catch(e) {}
+}
+
+function loadBackup() {
+  try {
+    const b = localStorage.getItem(BACKUP_KEY);
+    return b ? JSON.parse(b) : null;
+  } catch(e) { return null; }
+}
+
 function saveState() {
   if (isSyncing) return;
-  try { set(STATE_REF, state); } catch(e) { console.error('Erro ao salvar:', e); }
+  try {
+    set(STATE_REF, state);
+    saveBackup(state);
+  } catch(e) { console.error('Erro ao salvar:', e); }
 }
 
 function sanitizeState(raw) {
@@ -415,7 +439,26 @@ function initFirebase() {
   onValue(STATE_REF, (snapshot) => {
     isSyncing = true;
     const data = snapshot.val();
-    if (data) state = sanitizeState({...state, ...data});
+    const backup = loadBackup();
+
+    if (stateHasContent(data)) {
+      // Firebase tem dados — usa ele, mas protege contra regressão
+      if (stateHasContent(backup) &&
+          ((backup.tasks||[]).length + (backup.doneTasks||[]).length) >
+          ((data.tasks||[]).length + (data.doneTasks||[]).length)) {
+        // Backup local tem mais dados que o Firebase — restaura backup
+        state = sanitizeState({...state, ...backup});
+        set(STATE_REF, state); // sobe o backup para o Firebase
+      } else {
+        state = sanitizeState({...state, ...data});
+        saveBackup(state);
+      }
+    } else if (stateHasContent(backup)) {
+      // Firebase vazio mas backup local tem dados — restaura
+      state = sanitizeState({...state, ...backup});
+      set(STATE_REF, state);
+    }
+
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.remove();
     checkWeekRollover();
@@ -424,11 +467,15 @@ function initFirebase() {
     isSyncing = false;
   }, (error) => {
     console.error('Erro Firebase:', error);
+    // Tenta usar backup local se Firebase falhar
+    const backup = loadBackup();
+    if (stateHasContent(backup)) state = sanitizeState({...state, ...backup});
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.innerHTML = `
-      <div style="font-family:'DM Serif Display',serif;font-size:1.1rem;color:#C0392B;">Erro de conexão</div>
-      <div style="font-size:0.8rem;color:#9E9891;">Verifique as regras do Firebase ou sua conexão</div>
+      <div style="font-family:'DM Serif Display',serif;font-size:1.1rem;color:#C0392B;">Sem conexão com Firebase</div>
+      <div style="font-size:0.8rem;color:#9E9891;">Exibindo dados do backup local</div>
     `;
+    checkWeekRollover(); autoAdvanceTasks(); renderAll();
   });
 }
 
@@ -1164,3 +1211,4 @@ setInterval(() => { checkWeekRollover(); autoAdvanceTasks(); renderAll(); render
 </script>
 </body>
 </html>
+
