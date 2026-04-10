@@ -379,8 +379,8 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getDatabase(firebaseApp);
-const STATE_REF = ref(db, 'fernanda/state');
-const BACKUP_KEY = 'planejador_backup_fernanda';
+const STATE_REF = ref(db, 'davi/state');
+const BACKUP_KEY = 'planejador_backup_davi';
 
 let isSyncing = false;
 
@@ -665,8 +665,7 @@ function deleteSubtask(taskId, subId) {
 }
 
 function deleteTask(id) {
-  if (!confirm('Excluir esta tarefa?')) return;
-  state.tasks = state.tasks.filter(t => t.id !== id);
+  state.tasks = state.tasks.filter(t => t.id != id);
   saveState(); renderAll();
 }
 
@@ -942,7 +941,7 @@ function buildDayTaskItem(task) {
         <button class="day-task-btn" title="Mover" onclick="openMoveModal(${task.id})">↔</button>
         <button class="day-task-btn" title="Voltar às tarefas" onclick="moveTask(${task.id},null)">←</button>
         <button class="day-task-btn" title="Editar" onclick="openEditModal(${task.id})">✎</button>
-        <button class="day-task-btn del" title="Excluir" onclick="deleteTask(${task.id})">✕</button>
+        <button class="day-task-btn del" title="Excluir" onclick="if(confirm('Excluir?')) deleteTask(${task.id})">✕</button>
       </div>
     </div>
     ${subInfo}
@@ -1211,4 +1210,3 @@ setInterval(() => { checkWeekRollover(); autoAdvanceTasks(); renderAll(); render
 </script>
 </body>
 </html>
-
