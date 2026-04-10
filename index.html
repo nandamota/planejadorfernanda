@@ -439,24 +439,18 @@ function initFirebase() {
   onValue(STATE_REF, (snapshot) => {
     isSyncing = true;
     const data = snapshot.val();
-    const backup = loadBackup();
 
-    if (stateHasContent(data)) {
-      // Firebase tem dados — usa ele, mas protege contra regressão
-      if (stateHasContent(backup) &&
-          ((backup.tasks||[]).length + (backup.doneTasks||[]).length) >
-          ((data.tasks||[]).length + (data.doneTasks||[]).length)) {
-        // Backup local tem mais dados que o Firebase — restaura backup
+    if (data) {
+      // Firebase é sempre a fonte da verdade — aplica sem comparação
+      state = sanitizeState({...state, ...data});
+      saveBackup(state);
+    } else {
+      // Firebase vazio — restaura backup local se existir
+      const backup = loadBackup();
+      if (stateHasContent(backup)) {
         state = sanitizeState({...state, ...backup});
-        set(STATE_REF, state); // sobe o backup para o Firebase
-      } else {
-        state = sanitizeState({...state, ...data});
-        saveBackup(state);
+        set(STATE_REF, state);
       }
-    } else if (stateHasContent(backup)) {
-      // Firebase vazio mas backup local tem dados — restaura
-      state = sanitizeState({...state, ...backup});
-      set(STATE_REF, state);
     }
 
     const overlay = document.getElementById('loadingOverlay');
@@ -942,7 +936,7 @@ function buildDayTaskItem(task) {
         <button class="day-task-btn" title="Mover" onclick="openMoveModal(${task.id})">↔</button>
         <button class="day-task-btn" title="Voltar às tarefas" onclick="moveTask(${task.id},null)">←</button>
         <button class="day-task-btn" title="Editar" onclick="openEditModal(${task.id})">✎</button>
-        <button class="day-task-btn del" title="Excluir" onclick="deleteTask(${task.id})">✕</button>
+        <button class="day-task-btn del" title="Excluir" onclick="deleteTask(${task.id})" title="Excluir">✕</button>
       </div>
     </div>
     ${subInfo}
