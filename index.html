@@ -379,10 +379,11 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getDatabase(firebaseApp);
-const STATE_REF = ref(db, 'davi/state');
-const BACKUP_KEY = 'planejador_backup_davi';
+const STATE_REF = ref(db, 'fernanda/state');
+const BACKUP_KEY = 'planejador_backup_fernanda';
 
 let isSyncing = false;
+let lastLocalSave = 0;
 
 function stateHasContent(s) {
   return s && (
@@ -405,7 +406,7 @@ function loadBackup() {
 }
 
 function saveState() {
-  if (isSyncing) return;
+  lastLocalSave = Date.now();
   try {
     set(STATE_REF, state);
     saveBackup(state);
@@ -437,34 +438,38 @@ function initFirebase() {
   );
 
   onValue(STATE_REF, (snapshot) => {
-    isSyncing = true;
     const data = snapshot.val();
     const backup = loadBackup();
+    const localIsRecent = (Date.now() - lastLocalSave) < 2000;
 
-    if (stateHasContent(data)) {
-      // Firebase tem dados — usa ele, mas protege contra regressão
-      if (stateHasContent(backup) &&
-          ((backup.tasks||[]).length + (backup.doneTasks||[]).length) >
-          ((data.tasks||[]).length + (data.doneTasks||[]).length)) {
-        // Backup local tem mais dados que o Firebase — restaura backup
+    // Se houve save local recente, o Firebase está apenas confirmando
+    // nossa própria escrita — não sobrescrever o state atual
+    if (!localIsRecent) {
+      if (stateHasContent(data)) {
+        // Firebase tem dados — usa ele, mas protege contra regressão
+        if (stateHasContent(backup) &&
+            ((backup.tasks||[]).length + (backup.doneTasks||[]).length) >
+            ((data.tasks||[]).length + (data.doneTasks||[]).length)) {
+          // Backup local tem mais dados que o Firebase — restaura backup
+          state = sanitizeState({...state, ...backup});
+          set(STATE_REF, state); // sobe o backup para o Firebase
+        } else {
+          state = sanitizeState({...state, ...data});
+          saveBackup(state);
+        }
+      } else if (stateHasContent(backup)) {
+        // Firebase vazio mas backup local tem dados — restaura
         state = sanitizeState({...state, ...backup});
-        set(STATE_REF, state); // sobe o backup para o Firebase
-      } else {
-        state = sanitizeState({...state, ...data});
-        saveBackup(state);
+        set(STATE_REF, state);
       }
-    } else if (stateHasContent(backup)) {
-      // Firebase vazio mas backup local tem dados — restaura
-      state = sanitizeState({...state, ...backup});
-      set(STATE_REF, state);
     }
 
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.remove();
+    isSyncing = false;
     checkWeekRollover();
     autoAdvanceTasks();
     renderAll();
-    isSyncing = false;
   }, (error) => {
     console.error('Erro Firebase:', error);
     // Tenta usar backup local se Firebase falhar
