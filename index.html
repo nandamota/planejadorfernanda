@@ -204,6 +204,22 @@
   .modal-save { flex: 1; background: var(--accent); color: white; border: none; border-radius: 8px; padding: 10px; font-family: 'DM Sans', sans-serif; font-size: 0.88rem; font-weight: 600; cursor: pointer; }
   .modal-delete { background: none; border: 1px solid var(--danger); color: var(--danger); border-radius: 8px; padding: 10px 14px; font-family: 'DM Sans', sans-serif; font-size: 0.88rem; cursor: pointer; }
 
+
+  /* HORÁRIOS DO DIA */
+  .horarios-page { max-width: 600px; }
+  .horarios-table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
+  .horarios-table th { background: var(--surface2); padding: 10px 14px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); text-align: left; border-bottom: 1px solid var(--border); }
+  .horarios-table td { padding: 0; border-bottom: 1px solid var(--surface2); vertical-align: middle; }
+  .horarios-table tr:last-child td { border-bottom: none; }
+  .horario-time { width: 72px; padding: 8px 14px; font-size: 0.82rem; font-weight: 600; color: var(--text2); white-space: nowrap; border-right: 1px solid var(--surface2); }
+  .horario-input { width: 100%; border: none; background: none; padding: 8px 14px; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; color: var(--text); outline: none; }
+  .horario-input:focus { background: var(--accent-light); }
+  .horario-del { background: none; border: none; cursor: pointer; color: var(--text3); padding: 6px 10px; font-size: 0.85rem; opacity: 0; transition: opacity 0.15s; }
+  .horarios-table tr:hover .horario-del { opacity: 1; }
+  .horario-del:hover { color: var(--danger); }
+  .add-horario-row { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
+  .horario-time-input { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; background: var(--surface); color: var(--text); outline: none; width: 110px; }
+  .horario-time-input:focus { border-color: var(--accent); }
   .empty { color: var(--text3); font-size: 0.82rem; padding: 10px 4px; font-style: italic; }
 
   @media (max-width: 600px) {
@@ -225,6 +241,7 @@
   <button class="tab-btn active" onclick="switchTab('hoje',this)">📅 Hoje</button>
   <button class="tab-btn" onclick="switchTab('semana',this)">📆 Semana</button>
   <button class="tab-btn" onclick="switchTab('tarefas',this)">📋 Tarefas</button>
+  <button class="tab-btn" onclick="switchTab('horarios',this)">🕐 Horários</button>
   <button class="tab-btn" onclick="switchTab('prazos',this)">⏰ Prazos</button>
   <button class="tab-btn" onclick="switchTab('tags',this)">🏷️ Tags</button>
   <button class="tab-btn" onclick="switchTab('concluidas',this)">✅ Concluídas</button>
@@ -247,6 +264,26 @@
     <div class="section-header"><span class="section-title">Nova tarefa</span></div>
     <div id="tarefasAddRow"></div>
     <div style="margin-top:20px;" id="tarefasContent"></div>
+  </div>
+
+
+  <div id="tab-horarios" class="tab-panel horarios-page">
+    <div class="section-header"><span class="section-title">Planejamento do dia</span></div>
+    <table class="horarios-table">
+      <thead>
+        <tr>
+          <th>Horário</th>
+          <th>Organização do dia</th>
+          <th style="width:32px;"></th>
+        </tr>
+      </thead>
+      <tbody id="horariosBody"></tbody>
+    </table>
+    <div class="add-horario-row">
+      <input type="time" class="horario-time-input" id="novoHorarioTime" value="06:00">
+      <button class="add-btn" onclick="addHorario()">+ Adicionar horário</button>
+      <button class="task-btn" onclick="clearHorarios()" style="color:var(--danger);border-color:var(--danger);margin-left:auto;">🗑 Limpar tudo</button>
+    </div>
   </div>
 
   <div id="tab-prazos" class="tab-panel prazos-page">
@@ -347,6 +384,8 @@ let state = {
   tags: ['Pessoal','Trabalho','Shalom'],
   tagColors: {},      // {tagName: '#hexcolor'}
   prazos: [],         // [{id, nome, datetime, done}]
+  horarios: [],        // [{id, time, text}]
+  nextHorarioId: 1,
   nextPrazoId: 1,
   nextId: 1,
   nextSubId: 1,
@@ -417,6 +456,8 @@ function sanitizeState(raw) {
   if (!raw.nextSubId) raw.nextSubId = 1000;
   if (!raw.prazos) raw.prazos = [];
   if (!raw.nextPrazoId) raw.nextPrazoId = 1;
+  if (!raw.horarios) raw.horarios = [];
+  if (!raw.nextHorarioId) raw.nextHorarioId = 1;
   if (!raw.tasks) raw.tasks = [];
   if (!raw.tags) raw.tags = ['Pessoal','Trabalho','Shalom'];
   if (!raw.nextId) raw.nextId = 1;
@@ -685,7 +726,7 @@ function clearAllDone() {
 function renderAll() {
   document.getElementById('weekInfo').textContent = getWeekRange();
   renderMetasSections();
-  renderHoje(); renderSemana(); renderTarefas(); renderConcluidas(); renderTags(); renderPrazos();
+  renderHoje(); renderSemana(); renderTarefas(); renderConcluidas(); renderTags(); renderPrazos(); renderHorarios();
 }
 
 function groupByTag(tasks) {
@@ -1168,6 +1209,55 @@ function moveTagDown(idx) {
   saveState(); renderAll();
 }
 
+// ===== HORÁRIOS DO DIA =====
+function clearHorarios() {
+  if (!confirm('Apagar todo o planejamento de horários?')) return;
+  state.horarios = []; state.nextHorarioId = 1;
+  saveState(); renderHorarios();
+}
+
+function addHorario() {
+  const timeInput = document.getElementById('novoHorarioTime');
+  const time = timeInput.value;
+  if (!time) return;
+  state.horarios.push({ id: state.nextHorarioId++, time, text: '' });
+  state.horarios.sort((a, b) => a.time.localeCompare(b.time));
+  saveState(); renderHorarios();
+  // Foca no input recém-criado
+  setTimeout(() => {
+    const inputs = document.querySelectorAll('.horario-input');
+    const idx = state.horarios.findIndex(h => h.time === time);
+    if (inputs[idx]) inputs[idx].focus();
+  }, 50);
+}
+
+function updateHorarioText(id, value) {
+  const h = state.horarios.find(h => h.id === id);
+  if (h) h.text = value;
+}
+
+function deleteHorario(id) {
+  state.horarios = state.horarios.filter(h => h.id !== id);
+  saveState(); renderHorarios();
+}
+
+function renderHorarios() {
+  const tbody = document.getElementById('horariosBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  (state.horarios || []).forEach(h => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="horario-time">${h.time}</td>
+      <td><input class="horario-input" value="${h.text.replace(/"/g,'&quot;')}" placeholder="O que fazer às ${h.time}..."
+        oninput="updateHorarioText(${h.id}, this.value)"
+        onblur="saveState()"></td>
+      <td><button class="horario-del" onclick="deleteHorario(${h.id})">✕</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 // ===== TABS =====
 function switchTab(name, el) {
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
@@ -1189,7 +1279,8 @@ Object.assign(window, {
   addTag, removeTag, moveTagUp, moveTagDown, setTagColor,
   addPrazo, togglePrazoDone, deletePrazo,
   openEditPrazoModal, saveEditPrazo, deleteEditPrazo, closeEditPrazoModal,
-  saveMetaText
+  saveMetaText,
+  addHorario, deleteHorario, updateHorarioText, clearHorarios
 });
 
 // ===== INIT =====
