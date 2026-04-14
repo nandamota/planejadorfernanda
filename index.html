@@ -492,6 +492,8 @@ function initFirebase() {
 
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.remove();
+    checkWeekRollover();
+    autoAdvanceTasks();
     renderAll();
   }, (error) => {
     console.error('Erro Firebase:', error);
@@ -510,20 +512,15 @@ function initFirebase() {
 // ===== WEEK ROLLOVER =====
 function checkWeekRollover() {
   const current = getCurrentWeek();
-  if (state.currentWeek && state.currentWeek !== current) {
-    // New week: remove completed metas and clean doneTasks from previous week
-    state.metas = state.metas.filter(m => {
-      if (m.done && m.completedWeek && m.completedWeek !== current) return false;
-      return true;
-    });
-    // Remove done tasks that were completed in a prior week
-    state.doneTasks = state.doneTasks.filter(t => {
-      if (t.completedWeek && t.completedWeek !== current) return false;
-      return true;
-    });
+  if (state.currentWeek !== current) {
+    if (state.currentWeek) {
+      // Nova semana: limpa metas e tarefas concluídas da semana anterior
+      state.metas = state.metas.filter(m => !(m.done && m.completedWeek && m.completedWeek !== current));
+      state.doneTasks = state.doneTasks.filter(t => !(t.completedWeek && t.completedWeek !== current));
+    }
+    state.currentWeek = current;
+    saveState();
   }
-  state.currentWeek = current;
-  saveState();
 }
 
 // ===== TAG COLORS =====
@@ -548,9 +545,14 @@ function getWeekRange() {
 // ===== AUTO ADVANCE TASKS =====
 function autoAdvanceTasks() {
   const today = getTodayName(), todayIdx = DAYS.indexOf(today);
+  let changed = false;
   state.tasks.forEach(t => {
-    if (!t.done && t.day) { const ti = DAYS.indexOf(t.day); if (ti !== -1 && ti < todayIdx) t.day = today; }
+    if (!t.done && t.day) {
+      const ti = DAYS.indexOf(t.day);
+      if (ti !== -1 && ti < todayIdx) { t.day = today; changed = true; }
+    }
   });
+  if (changed) saveState();
 }
 
 // ===== METAS =====
@@ -1289,3 +1291,5 @@ setInterval(() => { checkWeekRollover(); autoAdvanceTasks(); renderAll(); render
 </script>
 </body>
 </html>
+
+
